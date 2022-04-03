@@ -1,44 +1,37 @@
-package main.collectors
+package main.collectors.UseStream
 
-import akka.Done
-import akka.actor.{ActorLogging, ActorSystem}
+import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Query
-import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse, StatusCodes, Uri}
-import akka.stream.FlowShape
+import akka.http.scaladsl.model._
 import akka.stream.alpakka.slick.scaladsl.{Slick, SlickSession}
 import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Sink, Source}
+import akka.stream.{ActorAttributes, FlowShape, Graph, Supervision}
+import akka.{Done, NotUsed}
 import com.typesafe.config.ConfigFactory
-import slick.jdbc.GetResult
+import main.collectors.Aggregates
+import main.database.PriceHistory.{RequestTicker, TickerRow}
 import spray.json._
 
-import java.time.LocalDate
 import java.sql.Date
+import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 import scala.util.{Failure, Success, Try}
 
-object Aggregates {
-  case class Price(c: Double, h: Double, l: Double, n: Int, o: Double, t: Long, v: Int, vw: Double)
-  case class ResponseObject (adjusted: Boolean, queryCount: Int, request_id: String, results: Option[List[Price]], resultsCount: Int, status: String, ticker: String)
-}
-
 class HistoryCollector extends DefaultJsonProtocol {
   import Aggregates._
 
-  case class TickerRow(ticker : String, latestDate : LocalDate)
-  case class RequestTicker(ticker : String, startDate : LocalDate, endDate: LocalDate)
-
   implicit val system : ActorSystem = ActorSystem("HistoryCollector")
-  implicit val GetTickerRow = GetResult( r => TickerRow(r.nextString(), LocalDate.parse(r.nextString())) )
   implicit val priceFormat: RootJsonFormat[Price] = jsonFormat8(Price)
   implicit val responseFormat: RootJsonFormat[ResponseObject] = jsonFormat7(ResponseObject)
 
   val loggerOutput: Sink[(Boolean, String), Future[Done]] = Sink.foreach[(Boolean, String)](x => println(s"Meaningful thing 2 : $x"))
 
-  val httpRequestGraph = GraphDSL.create() { implicit builder =>
+  val httpRequestGraph: Graph[FlowShape[(HttpRequest, Int), (String, Price)], NotUsed] = GraphDSL.create() { implicit builder =>
     import GraphDSL.Implicits._
 
     def successFilter(res : (Try[HttpResponse], Int)) = res match {
@@ -46,13 +39,17 @@ class HistoryCollector extends DefaultJsonProtocol {
       case _ => false
     }
 
+    def getJSONPayload(result : (Try[HttpResponse], Int)) = {
+      result._1.get.entity.dataBytes
+        .map(_.utf8String.parseJson.convertTo[ResponseObject])
+    }
+
     val pool = builder.add(Http().cachedHostConnectionPoolHttps[Int]("api.polygon.io")) //HttpRequest to Try[HttpResponse]
     val broadcast = builder.add(Broadcast[(Try[HttpResponse], Int)](2))
     val successFilterFlow = builder.add(
       Flow[(Try[HttpResponse], Int)]
         .filter(successFilter)
-        .flatMapConcat(_._1.get.entity.dataBytes)
-        .map(a => a.utf8String.parseJson.convertTo[ResponseObject])
+        .flatMapConcat(getJSONPayload)
         .map(a => (a.ticker, a.results.getOrElse(List())))
         .via(Flow[(String, List[Price])].flatMapConcat { a =>
           println(s"Ticker ${a._1}, data ${a._2}")
@@ -129,6 +126,15 @@ class HistoryCollector extends DefaultJsonProtocol {
          """.as[TickerRow])
   }
 
+  // 에러처리를 위한 Supervision Strategy
+
+  val decider : Supervision.Decider = {
+    case e : Exception  => {
+      // logger 사용해서 날짜 찍을 수 있도록 처리해야 함
+      Supervision.Resume
+    }
+  }
+
   // 주식 과거기록 조회, DB 에 있는 Ticker 의 가장 마지막 수집일 부터 당일까지 데이터 전부 읽어들임
   // polygon.io 제한있음, 1분에 request 5개.
   // 안전하게 1분에 4개씩 request 날리는것으로 해결
@@ -138,9 +144,16 @@ class HistoryCollector extends DefaultJsonProtocol {
       .filter(a => a.endDate.isAfter(a.startDate))
       .map(makeHttpRequest)
       .throttle(4, 1 minute)
-      .log("getAllHistory")
       .via(httpRequestGraph)
+      .log("getAllHistory")
+      .watchTermination() { (_, done) =>
+        done.onComplete {
+          case Success(_) => println("source completed successfully")
+          case Failure(e) => println(s"source completed with failure : $e")
+        }
+      }
       .to(insertIntoPriceHistory)
+      .withAttributes(ActorAttributes.supervisionStrategy(decider))
       .run()
   }
 

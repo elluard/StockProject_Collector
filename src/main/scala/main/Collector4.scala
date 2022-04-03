@@ -3,7 +3,7 @@ package main
 import akka.actor.ActorSystem
 import akka.stream.alpakka.slick.scaladsl.{Slick, SlickSession}
 import akka.stream.scaladsl.{Sink, Source}
-import main.collectors.HistoryCollector
+import main.collectors.UseStream.HistoryCollector
 import slick.jdbc.GetResult
 
 import java.time.LocalDate
