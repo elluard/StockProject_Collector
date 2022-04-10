@@ -19,7 +19,8 @@ object HttpAkkaStream extends  DefaultJsonProtocol {
   val httpRequestGraph: Graph[FlowShape[(HttpRequest, Int), (String, Price)], NotUsed] = GraphDSL.create() { implicit builder =>
     import GraphDSL.Implicits._
 
-    val loggerOutput: Sink[(Boolean, String), Future[Done]] = Sink.foreach[(Boolean, String)](x => println(s"Collect Result : $x"))
+    val loggerOutput: Sink[(Boolean, String), Future[Done]] =
+      Sink.foreach[(Boolean, String)](x => println(s"Collect Result : $x"))
 
     val pool = builder.add(Http().cachedHostConnectionPoolHttps[Int]("api.polygon.io")) //HttpRequest to Try[HttpResponse]
     val broadcast = builder.add(Broadcast[(Try[HttpResponse], Int)](2))
@@ -39,9 +40,14 @@ object HttpAkkaStream extends  DefaultJsonProtocol {
         }
     )
 
+    //그래프 구성,
+    // pool 의 output 을 broaodcast 의 input 으로
+    // broadcast 의 output #1 을 successFilterFlow 로
+    // broadcast 의 output #2 를 loggerOutput 로
     pool ~> broadcast ~> successFilterFlow
     broadcast ~> logFlow ~> loggerOutput
 
+    //successFilterFlow 의 output 을 이 함수의 output 으로 설정한다.
     FlowShape(pool.in, successFilterFlow.out)
   }
 }
