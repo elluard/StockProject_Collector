@@ -3,8 +3,8 @@ package main.collectors.HttpOnly
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.StatusCodes
-import akka.stream.scaladsl.Sink
-import akka.stream.{ActorAttributes, Supervision}
+import akka.stream.ActorAttributes
+import main.common.HttpCommon.{fromHttpResponseToReponseBody, fromRequestTickerToHttpRequest, fromTickerRowToRequestTicker, priceTupleFlow}
 import main.database.PriceHistory
 import spray.json.DefaultJsonProtocol
 
@@ -21,13 +21,13 @@ class ConnectionLevelClient extends DefaultJsonProtocol {
   def getHistory = {
     PriceHistory
       .selectTicker // DB로부터 데이터 읽어들임
-      .flatMapConcat(a => HttpCommon.makeRequestTickerList(a.ticker, a.latestDate)) //데이터 가공
-      .map (HttpCommon.makeHttpSingleRequest)
+      .flatMapConcat( fromTickerRowToRequestTicker ) //데이터 가공
+      .map ( fromRequestTickerToHttpRequest )
       .throttle(4, 1 minute)  //여기서 1분에 4건 다음 step 으로 전진하게끔 한다.
       .via(Http().connectionTo("api.polygon.io").https())  //여기서 HTTP Request 전송, HttpReseponse 형태로 바뀐다.
       .filter( _.status == StatusCodes.OK )
-      .flatMapConcat(HttpCommon.getResponseObject)
-      .via(HttpCommon.priceTupleFlow)
+      .flatMapConcat( fromHttpResponseToReponseBody )
+      .via( priceTupleFlow )
       .withAttributes(ActorAttributes.supervisionStrategy(SuperVisor.decider)) //실패 시 복구 전략 및 exception handler
       .watchTermination() { (_, done) => //모든 작업이 끝난 후 혹은 처리되지 않은 exception 발생 시 호출
         done.onComplete {
