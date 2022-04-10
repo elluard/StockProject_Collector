@@ -7,7 +7,7 @@ import akka.http.scaladsl.model.{HttpRequest, HttpResponse, StatusCodes}
 import akka.stream.{FlowShape, Graph}
 import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Sink}
 import main.collectors.Aggregates.Price
-import main.common.HttpCommon.{fromHttpResponseToReponseBody, httpRequestExceptionToResponse, priceTupleFlow}
+import main.common.HttpCommon.{fromHttpResponseToReponseBody, httpRequestExceptionToResponse, priceTupleFlow, requestSuccessFilter}
 import spray.json.DefaultJsonProtocol
 
 import scala.concurrent.Future
@@ -26,7 +26,7 @@ object HttpAkkaStream extends  DefaultJsonProtocol {
     val successFilterFlow = builder.add(
       Flow[(Try[HttpResponse], Int)]
         .map( httpRequestExceptionToResponse )
-        .filter(_.status == StatusCodes.OK)
+        .filter( requestSuccessFilter )
         .flatMapConcat( fromHttpResponseToReponseBody )
         .via( priceTupleFlow )
     )

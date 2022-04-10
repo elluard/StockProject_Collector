@@ -1,12 +1,8 @@
 package main.common
 
-import akka.actor.ActorSystem
-import akka.{Done, NotUsed}
-import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse, StatusCodes, Uri}
 import akka.http.scaladsl.model.Uri.Query
-import akka.stream.{FlowShape, Graph}
-import akka.stream.scaladsl.{Broadcast, Flow, GraphDSL, Sink, Source}
+import akka.stream.scaladsl.{Flow, Source}
 import com.typesafe.config.ConfigFactory
 import main.collectors.Aggregates.{Price, ResponseObject}
 import main.database.PriceHistory.TickerRow
@@ -15,7 +11,6 @@ import spray.json._
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
 
 object HttpCommon extends DefaultJsonProtocol {
@@ -23,6 +18,8 @@ object HttpCommon extends DefaultJsonProtocol {
   implicit val responseFormat: RootJsonFormat[ResponseObject] = jsonFormat7(ResponseObject)
 
   case class RequestTicker(ticker : String, startDate : LocalDate, endDate: LocalDate)
+
+  def requestSuccessFilter(res : HttpResponse) = res.status == StatusCodes.OK
 
   def makeRequestTickerList(ticker : String, latestDate : LocalDate) = {
     //접수일로부터 최대 2년간, 1달씩 끊어 RequestTicker List 를 구성한다.

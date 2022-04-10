@@ -3,7 +3,7 @@ package main.collectors.HttpOnly
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.stream.ActorAttributes
-import main.common.HttpCommon.{fromHttpResponseToReponseBody, fromTickerRowToRequestTicker, httpRequestExceptionToResponse, makeHttpRequest, priceTupleFlow}
+import main.common.HttpCommon.{fromHttpResponseToReponseBody, fromTickerRowToRequestTicker, httpRequestExceptionToResponse, makeHttpRequest, priceTupleFlow, requestSuccessFilter}
 import main.database.PriceHistory
 import spray.json._
 
@@ -46,6 +46,7 @@ class RequestLevelClient extends DefaultJsonProtocol {
       .throttle(4, 1 minute)  //여기서 1분에 4건 다음 step 으로 전진하게끔 한다.
       .via(Http().superPool())  //여기서 HTTP Request 전송, HttpReseponse 형태로 바뀐다.
       .map( httpRequestExceptionToResponse  )
+      .filter( requestSuccessFilter )
       .flatMapConcat( fromHttpResponseToReponseBody )
       .via( priceTupleFlow )
       .withAttributes(ActorAttributes.supervisionStrategy(SuperVisor.decider)) //실패 시 복구 전략 및 exception handler
