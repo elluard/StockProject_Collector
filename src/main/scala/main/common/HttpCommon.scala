@@ -66,6 +66,11 @@ object HttpCommon extends DefaultJsonProtocol {
 
   def fromHttpResponseToReponseBody(httpResponse : HttpResponse) = {
     httpResponse.entity.dataBytes
+      //String 에는 parseJson 함수가 존재하지 않고, RichString 클래스에 존재함.
+      //그럼에도 불구하고 아래와 같은 사용이 가능한 이유는
+      //implicit 함수중에 enrichString 함수가 String 을 RichString 으로 변환시켜줌
+      //따라서 실제 실행되는 코드는 아래와 같다.
+      //.map(enrichString(_.utf8String).parseJson.convertTo[ResponseObject])
       .map(_.utf8String.parseJson.convertTo[ResponseObject])
       .map(a => (a.ticker, a.results.getOrElse(List())))
   }
