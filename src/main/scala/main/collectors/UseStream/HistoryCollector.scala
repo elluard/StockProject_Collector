@@ -1,12 +1,11 @@
 package main.collectors.UseStream
 
 import akka.actor.ActorSystem
-import akka.stream.scaladsl.Sink
 import akka.stream.ActorAttributes
 import main.collectors.Aggregates
 import main.common.HttpAkkaStream.httpRequestGraph
 import main.common.HttpCommon.{ fromRequestTickerToHttpRequestTuple, fromTickerRowToRequestTicker }
-import main.common.{HttpCommon, SuperVisor}
+import main.common.SuperVisor
 import main.database.PriceHistory
 import spray.json._
 
@@ -24,12 +23,12 @@ class HistoryCollector extends DefaultJsonProtocol {
 
   def getHistory = {
     PriceHistory
-      .selectTicker
-      .flatMapConcat( fromTickerRowToRequestTicker )
-      .map( fromRequestTickerToHttpRequestTuple )
+      .selectTicker //PriceHistory.TickerRow
+      .flatMapConcat( fromTickerRowToRequestTicker ) // HttpComm.RequestTicker
+      .map( fromRequestTickerToHttpRequestTuple ) // (HttpRequest, Int)
       .throttle(4, 1 minute)
       .via( httpRequestGraph )    // 여기서, 로그 기록 작업, output 으로는 (String, Price 리턴)
-      .log("getAllHistory")
+      .log("getAllHistory") //(String, Price)
       .withAttributes(ActorAttributes.supervisionStrategy(SuperVisor.decider))
       .watchTermination() { (_, done) =>
         done.onComplete {
@@ -37,7 +36,7 @@ class HistoryCollector extends DefaultJsonProtocol {
           case Failure(e) => println(s"source completed with failure : $e")
         }
       }
-//      .to(PriceHistory.insertIntoPriceHistory)
-      .runWith(Sink.foreach(println))
+      .to(PriceHistory.insertIntoPriceHistory)
+      .run()
   }
 }
