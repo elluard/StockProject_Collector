@@ -1,5 +1,6 @@
 package main.common
 
+import akka.{Done, NotUsed}
 import akka.http.scaladsl.model.{HttpMethods, HttpRequest, HttpResponse, StatusCodes, Uri}
 import akka.http.scaladsl.model.Uri.Query
 import akka.stream.scaladsl.{Flow, Source}
@@ -11,6 +12,8 @@ import spray.json._
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.util.{Failure, Success, Try}
 
 object HttpCommon extends DefaultJsonProtocol {
@@ -18,6 +21,13 @@ object HttpCommon extends DefaultJsonProtocol {
   implicit val responseFormat: RootJsonFormat[ResponseObject] = jsonFormat7(ResponseObject)
 
   case class RequestTicker(ticker : String, startDate : LocalDate, endDate: LocalDate)
+
+  def terminationWatchter(a: NotUsed, done: Future[Done]) = {
+    done.onComplete {
+      case Success(a) => println(s"source completed successfully : $a")
+      case Failure(e) => println(s"source completed with failure : $e")
+    }
+  }
 
   def requestSuccessFilter(res : HttpResponse) = res.status == StatusCodes.OK
 
